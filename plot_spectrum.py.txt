@@ -1,86 +1,47 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy.fft import fft2, ifft2, fftfreq
 
-# --- Paramètres de simulation ---
-N = 256                      # Résolution spatiale (N x N)
-L = 2 * np.pi               # Taille du domaine
-dt = 0.001                  # Pas de temps
-T = 10.0                    # Durée totale
-ν = 0.01                    # Viscosité
-A, λ, ω = 0.5, 0.15, 3.0     # Paramètres fractaux
+# --- Load velocity fields from simulation ---
+u = np.load("u_final.npy")
+v = np.load("v_final.npy")
 
-# --- Grille et opérateurs de Fourier ---
-x = np.linspace(0, L, N, endpoint=False)
-y = np.linspace(0, L, N, endpoint=False)
-X, Y = np.meshgrid(x, y)
+# --- FFT of velocity fields ---
+u_hat = np.fft.fft2(u)
+v_hat = np.fft.fft2(v)
+u_hat = np.fft.fftshift(u_hat)
+v_hat = np.fft.fftshift(v_hat)
 
-kx = fftfreq(N, d=L/N) * 2 * np.pi
-ky = fftfreq(N, d=L/N) * 2 * np.pi
+# --- Compute energy spectrum ---
+N = u.shape[0]
+kx = np.fft.fftfreq(N, d=1.0/N)
+ky = np.fft.fftfreq(N, d=1.0/N)
+kx = np.fft.fftshift(kx)
+ky = np.fft.fftshift(ky)
 KX, KY = np.meshgrid(kx, ky)
-K2 = KX**2 + KY**2
-K2[0, 0] = 1e-10  # évite division par zéro
+Kmag = np.sqrt(KX**2 + KY**2)
 
-# --- Initialisation du champ de vitesse ---
-def initial_condition():
-    np.random.seed(0)
-    u_hat = np.random.randn(N, N) + 1j * np.random.randn(N, N)
-    u_hat *= np.exp(-K2 / 10.0)
-    u = np.real(ifft2(u_hat))
-    return u - np.mean(u)
+E_spectrum = 0.5 * (np.abs(u_hat)**2 + np.abs(v_hat)**2)
 
-u = initial_condition()
-v = initial_condition()
+# Bin energy by wavenumber shell
+k_bins = np.arange(0.5, N//2, 1.0)
+E_avg = np.zeros_like(k_bins)
 
-# --- Correction fractale (en Fourier) ---
-def fractal_damping(kx, ky):
-    k = np.sqrt(kx**2 + ky**2)
-    return -A * np.exp(-λ * k)
+for i, k in enumerate(k_bins):
+    mask = (Kmag >= k - 0.5) & (Kmag < k + 0.5)
+    E_avg[i] = np.sum(E_spectrum[mask])
 
-DAMP = fractal_damping(KX, KY)
+# --- Plot ---
+plt.figure(figsize=(8, 4))
+plt.loglog(k_bins, E_avg, label="Energy Spectrum")
+plt.xlabel("Wavenumber |k|")
+plt.ylabel("E(k)")
+plt.title("Angularly Averaged Energy Spectrum")
+plt.grid(True, which='both')
+plt.tight_layout()
+plt.savefig("figure2_energy_spectrum.png", dpi=300)
+plt.show()
 
-# --- Boucle temporelle principale ---
-steps = int(T / dt)
-energy = []
 
-for n in range(steps):
-    u_hat = fft2(u)
-    v_hat = fft2(v)
+   
 
-    # Projection pour incompressibilité (vitesse divergence-libre)
-    div = (KX * u_hat + KY * v_hat) / K2
-    u_hat -= KX * div
-    v_hat -= KY * div
 
-    # Terme non-linéaire : calculé en physique
-    u_phys = np.real(ifft2(u_hat))
-    v_phys = np.real(ifft2(v_hat))
-
-    ux = np.real(ifft2(1j * KX * u_hat))
-    uy = np.real(ifft2(1j * KY * u_hat))
-    vx = np.real(ifft2(1j * KX * v_hat))
-    vy = np.real(ifft2(1j * KY * v_hat))
-
-    NLU = u_phys * ux + v_phys * uy
-    NLV = u_phys * vx + v_phys * vy
-
-    # Mise à jour (Euler explicite + diffusion implicite)
-    NLU_hat = fft2(NLU)
-    NLV_hat = fft2(NLV)
-
-    u_hat_new = (u_hat - dt * (NLU_hat + DAMP * u_hat)) / (1 + dt * ν * K2)
-    v_hat_new = (v_hat - dt * (NLV_hat + DAMP * v_hat)) / (1 + dt * ν * K2)
-
-    u = np.real(ifft2(u_hat_new))
-    v = np.real(ifft2(v_hat_new))
-
-    # Stocker l'énergie cinétique
-    E = 0.5 * np.mean(u**2 + v**2)
-    energy.append(E)
-
-# --- Sauvegarde des données ---
-np.save("energy.npy", np.array(energy))
-np.save("u_final.npy", u)
-np.save("v_final.npy", v)
-
-print("Simulation terminée. Résultats enregistrés.")
