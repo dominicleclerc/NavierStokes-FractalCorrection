@@ -84,7 +84,3 @@ np.save("u_final.npy", u)
 np.save("v_final.npy", v)
 
 print("Simulation complete. Results saved.")
-
-
-
-   
