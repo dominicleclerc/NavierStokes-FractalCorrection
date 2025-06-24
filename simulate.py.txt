@@ -2,15 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fftfreq
 
-# --- Paramètres de simulation ---
-N = 256                      # Résolution spatiale (N x N)
-L = 2 * np.pi               # Taille du domaine
-dt = 0.001                  # Pas de temps
-T = 10.0                    # Durée totale
-ν = 0.01                    # Viscosité
-A, λ, ω = 0.5, 0.15, 3.0     # Paramètres fractaux
+# --- Simulation parameters ---
+N = 256                      # Grid resolution (N x N)
+L = 2 * np.pi               # Domain size
+dt = 0.001                  # Time step
+T = 10.0                    # Total simulation time
+ν = 0.01                    # Viscosity
+A, λ, ω = 0.5, 0.15, 3.0     # Fractal damping parameters
 
-# --- Grille et opérateurs de Fourier ---
+# --- Grid and Fourier operators ---
 x = np.linspace(0, L, N, endpoint=False)
 y = np.linspace(0, L, N, endpoint=False)
 X, Y = np.meshgrid(x, y)
@@ -19,9 +19,9 @@ kx = fftfreq(N, d=L/N) * 2 * np.pi
 ky = fftfreq(N, d=L/N) * 2 * np.pi
 KX, KY = np.meshgrid(kx, ky)
 K2 = KX**2 + KY**2
-K2[0, 0] = 1e-10  # évite division par zéro
+K2[0, 0] = 1e-10  # avoid division by zero at k=0
 
-# --- Initialisation du champ de vitesse ---
+# --- Initial velocity field (random divergence-free) ---
 def initial_condition():
     np.random.seed(0)
     u_hat = np.random.randn(N, N) + 1j * np.random.randn(N, N)
@@ -32,14 +32,14 @@ def initial_condition():
 u = initial_condition()
 v = initial_condition()
 
-# --- Correction fractale (en Fourier) ---
+# --- Fractal damping term in Fourier space ---
 def fractal_damping(kx, ky):
     k = np.sqrt(kx**2 + ky**2)
     return -A * np.exp(-λ * k)
 
 DAMP = fractal_damping(KX, KY)
 
-# --- Boucle temporelle principale ---
+# --- Time integration loop ---
 steps = int(T / dt)
 energy = []
 
@@ -47,12 +47,12 @@ for n in range(steps):
     u_hat = fft2(u)
     v_hat = fft2(v)
 
-    # Projection pour incompressibilité (vitesse divergence-libre)
+    # Enforce incompressibility via projection
     div = (KX * u_hat + KY * v_hat) / K2
     u_hat -= KX * div
     v_hat -= KY * div
 
-    # Terme non-linéaire : calculé en physique
+    # Compute nonlinear terms in physical space
     u_phys = np.real(ifft2(u_hat))
     v_phys = np.real(ifft2(v_hat))
 
@@ -64,23 +64,27 @@ for n in range(steps):
     NLU = u_phys * ux + v_phys * uy
     NLV = u_phys * vx + v_phys * vy
 
-    # Mise à jour (Euler explicite + diffusion implicite)
     NLU_hat = fft2(NLU)
     NLV_hat = fft2(NLV)
 
+    # Semi-implicit update (Euler + damping)
     u_hat_new = (u_hat - dt * (NLU_hat + DAMP * u_hat)) / (1 + dt * ν * K2)
     v_hat_new = (v_hat - dt * (NLV_hat + DAMP * v_hat)) / (1 + dt * ν * K2)
 
     u = np.real(ifft2(u_hat_new))
     v = np.real(ifft2(v_hat_new))
 
-    # Stocker l'énergie cinétique
+    # Compute and store kinetic energy
     E = 0.5 * np.mean(u**2 + v**2)
     energy.append(E)
 
-# --- Sauvegarde des données ---
+# --- Save output ---
 np.save("energy.npy", np.array(energy))
 np.save("u_final.npy", u)
 np.save("v_final.npy", v)
 
-print("Simulation terminée. Résultats enregistrés.")
+print("Simulation complete. Results saved.")
+
+
+
+   
